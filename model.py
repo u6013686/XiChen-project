@@ -4,25 +4,23 @@ from keras.callbacks import ModelCheckpoint
 from keras.optimizers import Adam
 from keras.models import Model
 from sklearn.model_selection import train_test_split
-from data_helpers import load_data
+from data_helpers import load_data,load_data_2
 from keras.models import model_from_json
 import numpy as np
-
+import os
+import re
 def train_model(pattern):
-    epochs = 5  #20
-    batch_size =32  #64
+    epochs = 5
+    batch_size = 40
     print('Loading data')
     x, y, vocabulary, vocabulary_inv = load_data(pattern)
 
-    X_train, X_test, y_train, y_test = train_test_split( x, y, test_size=0.2, random_state=42)
-    np.savetxt(pattern+'X_train.txt', X_train)
-    np.savetxt(pattern+'X_test.txt', X_test)
-    np.savetxt(pattern+'y_train.txt', y_train)
-    np.savetxt(pattern+'y_test.txt', y_test)
-    
+    X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.1, random_state=42)
+    X_train, X_validation, y_train, y_validation = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
+
     sequence_length = x.shape[1] # 56
     vocabulary_size = len(vocabulary_inv) # 18765
-    embedding_dim = 128 #256
+    embedding_dim = 128
     filter_sizes = [3,4,5]
     num_filters = 512
     drop = 0.5
@@ -54,98 +52,78 @@ def train_model(pattern):
 
     model.compile(optimizer=adam, loss='binary_crossentropy', metrics=['accuracy'])
     print("Traning Model...")
-    model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1, callbacks=[checkpoint], validation_data=(X_test, y_test))  # starts training
+    model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1, callbacks=[checkpoint], validation_data=(X_validation, y_validation))  # starts training
 
     model.summary()
 
-    model_json = model.to_json()
-    with open("model" + pattern + ".json", "w") as json_file:
-        json_file.write(model_json)
+    # model_json = model.to_json()
+    # with open("model" + pattern + ".json", "w") as json_file:
+    #     json_file.write(model_json)
     # serialize weights to HDF5
-    model.save_weights("model" + pattern + ".h5")
+    #model.save_weights("model" + pattern + ".h5")
     print("Saved model to disk")
+    #np.savetxt(pattern + 'X_test.txt', X_test)
+    #np.savetxt(pattern + 'y_test.txt', y_test)
 
-def visualisation(pattern):
-    print('Loading data')
-    x, y, vocabulary, vocabulary_inv = load_data()
-
+    dirs = os.listdir(os.getcwd())
+    max_ind = 0
+    for file in dirs:
+        if 'weights.00' in file:
+            name_ind = int(re.search(r'weights\.00(.*?)-', file).group(1))
+            if name_ind > max_ind:
+                max_ind = name_ind
+    weights_file = "weights.00" + str(max_ind) + "-0.7547.hdf5"
     # load json and create model
-    json_file = open('model' + pattern + '.json', 'r')
+    # json_file = open('model' + pattern + '.json', 'r')
+    # loaded_model_json = json_file.read()
+    # json_file.close()
+    # loaded_model = model_from_json(loaded_model_json)
+    # load weights into new model
+    model.load_weights(weights_file)
+    print("Loaded model from disk")
+
+    y_pred = [np.argmax(model.predict(np.array([X_test[i], ]))) for i in range(len(X_test))]
+
+    def acc(y_true, y_pred):
+        return np.equal(np.argmax(y_true, axis=-1), y_pred).mean()
+
+    print("final test accuracy (optimal): " + str(acc(y_test, y_pred)))
+    np.save(pattern + 'X_test.txt', X_test)
+    np.save(pattern + 'y_test.txt', y_test)
+def predict(pattern):
+    # print(os.getcwd())
+    print('Loading data')
+    #vocabulary, vocabulary_inv = load_data_2(pattern)
+    y = np.loadtxt(pattern +'y_test.txt')
+    x = np.loadtxt(pattern +'X_test.txt')
+
+    # n = 0
+    # for i in range(len(x)):
+    #     if y[i, 0] == 0:
+    #         x = np.delete(x, i - n, axis=0)
+    #         n += 1
+
+    dirs = os.listdir(os.getcwd())
+    max_ind = 0
+    for file in dirs:
+        if 'weights.00' in file:
+            name_ind = int(re.search(r'weights\.00(.*?)-', file).group(1))
+            if name_ind > max_ind:
+                max_ind =name_ind
+                weights_file = file
+    # load json and create model
+    json_file = open('model'+pattern+'.json', 'r')
     loaded_model_json = json_file.read()
     json_file.close()
     loaded_model = model_from_json(loaded_model_json)
     # load weights into new model
-    loaded_model.load_weights("model' + pattern + '.h5")
+    loaded_model.load_weights(weights_file)
     print("Loaded model from disk")
 
-    loaded_model.summary()
-    from keras import backend as K
-    inp = loaded_model.input  # input placeholder
+    y_pred = [np.argmax(loaded_model.predict(np.array([x[i], ]))) for i in range(len(x))]
 
-    def generate_array(outputs):
+    def acc(y_true, y_pred):
+        return np.equal(np.argmax(y_true, axis=-1),y_pred).mean()
 
-        functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
-        layer_outs = functor(a)
-        return np.asarray(layer_outs[0][0])
-
-    def get_max_loc(outputs, filters):
-        max_loc = []
-        phrase_len = len(filters[:, 0, 0, 0])
-        layer_out = generate_array(outputs)
-        for i in range(512):
-            max_l = np.argmax(layer_out[:, 0, i])
-            max_loc.append((max_l, phrase_len))
-        return max_loc
-
-    import math
-    num = 0
-
-    for s in range(len(x)):
-        pp = []
-        pn = []
-        num += 1
-        print(num)
-        sentence = [vocabulary_inv[e] for e in x[s]]
-        a = [np.array([x[s], ]), 1.]
-        outputs1 = []
-        outputs2 = []
-        outputs3 = []
-        outputs4 = []
-        outputs5 = []
-        for layer in loaded_model.layers:
-            # outputs.append(layer.output)
-            if layer.get_config()['name'] == u'conv2d_1':
-                outputs1.append(layer.output)
-                filters1 = np.asarray(layer.get_weights()[0])
-                # print (np.asarray(layer.get_weights()[0]).shape)
-            elif layer.get_config()['name'] == u'conv2d_2':
-                outputs2.append(layer.output)
-                filters2 = np.asarray(layer.get_weights()[0])
-            elif layer.get_config()['name'] == u'conv2d_3':
-                outputs3.append(layer.output)
-                filters3 = np.asarray(layer.get_weights()[0])
-            elif layer.get_config()['name'] == u'dropout_1':
-                outputs4.append(layer.output)
-                layer_out4 = generate_array(outputs4)
-            elif layer.get_config()['name'] == u'dense_1':
-                filters5 = np.asarray(layer.get_weights()[0])  # evaluation function
-                outputs5.append(layer.output)
-                layer_out5 = generate_array(outputs5)
-
-        locs = get_max_loc(outputs1, filters1) + get_max_loc(outputs2, filters2) + get_max_loc(outputs3, filters3)
-
-        max_phrase = [0, None,None]
-        for n in range(1536):
-            pos_posibility = math.e ** ((filters5[n, 0]) * layer_out4[n]) / (
-                        math.e ** ((filters5[n, 0]) * layer_out4[n]) + math.e ** ((filters5[n, 1]) * layer_out4[n]))
-            if pos_posibility > max_phrase[0]:
-                phrase = ' '.join(sentence[locs[n][0]:(locs[n][0] + locs[n][1] - 1)])
-                max_phrase[0] = pos_posibility
-                max_phrase[1] = phrase
-                max_phrase[2] = num
-
-        if layer_out5[1] > layer_out5[0]:
-            pp.append(tuple(max_phrase))
-
-    pp = sorted(pp, reverse=True)
-    print('top 10 positive: ' + pp[0:9])
+    print("test accuracy: " + str(acc(y, y_pred)))
+    #loaded_model.summary()
