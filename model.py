@@ -4,14 +4,14 @@ from keras.callbacks import ModelCheckpoint
 from keras.optimizers import Adam
 from keras.models import Model
 from sklearn.model_selection import train_test_split
-from data_helpers import load_data,load_data_2
+from data_helpers import load_data
 from keras.models import model_from_json
 import numpy as np
 import os
 import re
 def train_model(pattern):
     epochs = 5
-    batch_size = 40
+    batch_size = 50
     print('Loading data')
     x, y, vocabulary, vocabulary_inv = load_data(pattern)
 
@@ -56,9 +56,9 @@ def train_model(pattern):
 
     model.summary()
 
-    # model_json = model.to_json()
-    # with open("model" + pattern + ".json", "w") as json_file:
-    #     json_file.write(model_json)
+    model_json = model.to_json()
+    with open("model" + pattern + ".json", "w") as json_file:
+        json_file.write(model_json)
     # serialize weights to HDF5
     #model.save_weights("model" + pattern + ".h5")
     print("Saved model to disk")
@@ -72,7 +72,7 @@ def train_model(pattern):
             name_ind = int(re.search(r'weights\.00(.*?)-', file).group(1))
             if name_ind > max_ind:
                 max_ind = name_ind
-    weights_file = "weights.00" + str(max_ind) + "-0.7547.hdf5"
+                weights_file = file
     # load json and create model
     # json_file = open('model' + pattern + '.json', 'r')
     # loaded_model_json = json_file.read()
@@ -90,6 +90,8 @@ def train_model(pattern):
     print("final test accuracy (optimal): " + str(acc(y_test, y_pred)))
     np.save(pattern + 'X_test.txt', X_test)
     np.save(pattern + 'y_test.txt', y_test)
+    np.save(pattern + 'X_train.txt', X_train)
+    np.save(pattern + 'y_train.txt', y_train)
 def predict(pattern):
     # print(os.getcwd())
     print('Loading data')
@@ -110,7 +112,7 @@ def predict(pattern):
             name_ind = int(re.search(r'weights\.00(.*?)-', file).group(1))
             if name_ind > max_ind:
                 max_ind =name_ind
-                weights_file = file
+    weights_file = "weights.00"+ str(max_ind)+"-0.7547.hdf5"
     # load json and create model
     json_file = open('model'+pattern+'.json', 'r')
     loaded_model_json = json_file.read()
